@@ -1,0 +1,164 @@
+I'll create a simplified version of the Smart Home Energy Monitoring System using the specific sensor code samples you provided for CrowPi kit.
+
+```python
+#!/usr/bin/python
+import RPi.GPIO as GPIO
+import time
+from time import strftime, sleep
+import smbus
+import HD44780MCP
+import MCP230XX
+from DFRobot_DHT20 import DFRobot_DHT20
+
+# Pin Definitions
+MOTION_PIN = 23
+RELAY_PIN = 21
+
+# I2C Setup for DHT20
+I2C_BUS = 0x01
+I2C_ADDRESS = 0x38
+
+# LCD I2C Setup
+LCD_I2C_ADDR = 0x21
+
+# Initialize GPIO
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(MOTION_PIN, GPIO.IN)
+GPIO.setup(RELAY_PIN, GPIO.OUT)
+
+# Initialize DHT20
+dht20 = DFRobot_DHT20(I2C_BUS, I2C_ADDRESS)
+
+# Initialize Light Sensor
+class LightSensor():
+    def __init__(self):
+        self.DEVICE = 0x5c
+        self.ONE_TIME_HIGH_RES_MODE_1 = 0x20
+        if(GPIO.RPI_REVISION == 1):
+            self.bus = smbus.SMBus(0)
+        else:
+            self.bus = smbus.SMBus(1)
+
+    def convertToNumber(self, data):
+        return ((data[1] + (256 * data[0])) / 1.2)
+
+    def readLight(self):
+        data = self.bus.read_i2c_block_data(self.DEVICE, self.ONE_TIME_HIGH_RES_MODE_1)
+        return self.convertToNumber(data)
+
+# Initialize LCD
+def setup_lcd():
+    mcp = MCP230XX.MCP230XX('MCP23008', LCD_I2C_ADDR)
+    # Turn on backlight
+    mcp.set_mode(7, 'output')
+    mcp.output(7, True)
+    # Initialize LCD
+    lcd = HD44780MCP.HD44780(mcp, 1, -1, 2, [3,4,5,6], rows=2, characters=16, mode=0, font=0)
+    return lcd
+
+class SmartHomeMonitor:
+    def __init__(self):
+        # Initialize sensors
+        if not dht20.begin():
+            print("DHT20 sensor initialization failed")
+            return
+        
+        self.light_sensor = LightSensor()
+        self.lcd = setup_lcd()
+        print("Smart Home Monitor initialized")
+
+    def update_lcd_display(self, temp, humidity, light, motion):
+        """Update LCD with current sensor readings"""
+        self.lcd.clear_display()
+        self.lcd.display_string(f"T:{temp:.1f}C H:{humidity:.1f}%")
+        self.lcd.set_cursor(2, 1)
+        motion_status = "Motion: YES" if motion else "Motion: NO"
+        self.lcd.display_string(f"L:{light:.0f}lx {motion_status}")
+
+    def control_relay(self, state):
+        """Control relay based on conditions"""
+        GPIO.output(RELAY_PIN, state)
+
+    def run(self):
+        try:
+            while True:
+                # Read DHT20 sensor
+                temperature, humidity, crc_error = dht20.get_temperature_and_humidity()
+                if crc_error:
+                    print("DHT20 CRC Error")
+                    continue
+
+                # Read light level
+                light_level = self.light_sensor.readLight()
+
+                # Read motion sensor
+                motion_detected = GPIO.input(MOTION_PIN)
+
+                # Print readings to terminal
+                print("\n" + strftime("%Y-%m-%d %H:%M:%S %Z"))
+                print(f"Temperature    : {temperature:.1f}°C")
+                print(f"Humidity       : {humidity:.1f}%")
+                print(f"Light Level    : {light_level:.1f} lx")
+                print(f"Motion Detected: {'Yes' if motion_detected else 'No'}")
+
+                # Update LCD display
+                self.update_lcd_display(temperature, humidity, light_level, motion_detected)
+
+                # Smart control logic
+                if motion_detected and light_level < 50:  # Dark and motion detected
+                    print("Turning on relay (lights)")
+                    self.control_relay(GPIO.HIGH)
+                elif not motion_detected or light_level >= 50:
+                    print("Turning off relay (lights)")
+                    self.control_relay(GPIO.LOW)
+
+                # Wait before next reading
+                time.sleep(2)
+
+        except KeyboardInterrupt:
+            print("\nProgram stopped by user")
+            self.lcd.clear_display()
+            GPIO.cleanup()
+
+if __name__ == "__main__":
+    monitor = SmartHomeMonitor()
+    monitor.run()
+
+```
+
+This simplified version integrates all the sensors you mentioned and provides:
+
+1. Temperature and humidity monitoring using DHT20
+2. Light level monitoring using the light sensor
+3. Motion detection
+4. Relay control for lights/appliances
+5. LCD display showing current readings
+
+The system works as follows:
+
+1. It continuously monitors all sensors
+2. Displays readings on both LCD and terminal
+3. Controls the relay based on motion and light conditions:
+   - Turns on when motion is detected and light level is low
+   - Turns off when no motion or sufficient ambient light
+
+To run this code:
+
+1. Make sure all sensors are properly connected to the CrowPi kit
+2. Install required libraries:
+```bash
+pip install smbus-python DFRobot_DHT20
+```
+
+3. Run the script:
+```bash
+python smart_home_monitor.py
+```
+
+The LCD will show:
+- Line 1: Temperature and Humidity
+- Line 2: Light level and Motion status
+
+The system automatically controls the relay (which could be connected to lights or other appliances) based on motion and light conditions.
+
+Would you like me to add any additional features or modify the control logic?
